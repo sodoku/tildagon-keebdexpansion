@@ -147,9 +147,11 @@ class KeyboardApp(App):
         )  # CFG Set the KE_IEN, INT_CFG, and AI bits
         # Clear Interrupts
         self.i2c.writeto_mem(self.ADDR, 0x02, b"\x01")  # INT_STAT K_INT 1 to clear
-        irq_pin = self.hexpansion_config.pin[3]
+        irq_pin = self.hexpansion_config.pin[2]
         irq_pin.init(irq_pin.IN, irq_pin.PULL_UP)
         irq_pin.irq(self.handle_keyboard_irq, irq_pin.IRQ_FALLING)
+        self.led_pin = self.hexpansion_config.pin[0]
+        self.led_pin.init(self.led_pin.OUT)
         self.text = "keyboard initialized"
 
     def handle_keyboard_irq(self, _):
@@ -166,8 +168,10 @@ class KeyboardApp(App):
                 if button:
                     if pressed:
                         eventbus.emit(ButtonDownEvent(button=button))
+                        self.led_pin.on()
                     else:
                         eventbus.emit(ButtonUpEvent(button=button))
+                        self.led_pin.off()
         # Clear interrupt
         self.i2c.writeto_mem(self.ADDR, 0x02, b"\x01")  # INT_STAT K_INT 1 to clear
 
