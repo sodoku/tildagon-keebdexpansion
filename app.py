@@ -5,6 +5,7 @@ from events.input import BUTTON_TYPES, Buttons, ButtonDownEvent, ButtonUpEvent
 from system.eventbus import eventbus
 from system.hexpansion.config import *
 
+
 # Based on https://gitlab.com/why2025/team-badge/firmware/-/blob/main/badgevms/drivers/tca8418.c
 KEYCODES = [
     "NOTHING",
@@ -110,24 +111,16 @@ CUSTOM_KEY_MAP = {
 
 
 class KeyboardApp(App):
-    def __init__(self):
+    def __init__(self, config=None):
         self.button_states = Buttons(self)
-        self.text = "Press confirm"
+        self.hexpansion_config = config
+        if self.hexpansion_config:
+            self.init_keyboard()
 
     def update(self, delta):
-        if self.button_states.get(BUTTON_TYPES["CONFIRM"]):
-            # TODO: don't assume hexpansion port 4
-            self.hexpansion_config = HexpansionConfig(4)
-            self.init_keyboard()
         if self.button_states.get(BUTTON_TYPES["CANCEL"]):
             self.button_states.clear()
             self.minimise()
-
-    def draw(self, ctx):
-        clear_background(ctx)
-        ctx.text_align = ctx.CENTER
-        ctx.text_baseline = ctx.MIDDLE
-        ctx.move_to(0, 0).gray(1).text(self.text)
 
     def init_keyboard(self):
         self.ADDR = 0x34
@@ -152,10 +145,8 @@ class KeyboardApp(App):
         irq_pin.irq(self.handle_keyboard_irq, irq_pin.IRQ_FALLING)
         self.led_pin = self.hexpansion_config.pin[0]
         self.led_pin.init(self.led_pin.OUT)
-        self.text = "keyboard initialized"
 
     def handle_keyboard_irq(self, _):
-        print("handle_keyboard_irq")
         num_events = self.i2c.readfrom_mem(self.ADDR, 0x03, 1)
         for _ in range(num_events[0]):
             e = self.i2c.readfrom_mem(self.ADDR, 0x04, 1)
@@ -163,15 +154,17 @@ class KeyboardApp(App):
             key = e[0] & 0x7F
             if key > 0:
                 keycode = KEYCODES[key]
+                if keycode == "SQUARE":
+                    self.led_pin.off()
+                if keycode == "CIRCLE":
+                    self.led_pin.on()
                 keycode = CUSTOM_KEY_MAP.get(keycode) or keycode
                 button = KEYBOARD_BUTTONS.get(keycode)
                 if button:
                     if pressed:
                         eventbus.emit(ButtonDownEvent(button=button))
-                        self.led_pin.on()
                     else:
                         eventbus.emit(ButtonUpEvent(button=button))
-                        self.led_pin.off()
         # Clear interrupt
         self.i2c.writeto_mem(self.ADDR, 0x02, b"\x01")  # INT_STAT K_INT 1 to clear
 
