@@ -1,6 +1,6 @@
 from app import App
 from app_components.dialog import KEYBOARD_BUTTONS
-from events.input import Buttons, ButtonDownEvent, ButtonUpEvent
+from events.input import Button, Buttons, ButtonDownEvent, ButtonUpEvent
 from system.eventbus import eventbus
 import neopixel
 from tildagonos import tildagonos
@@ -9,6 +9,25 @@ import asyncio
 
 # Based on https://gitlab.com/why2025/team-badge/firmware/-/blob/main/badgevms/drivers/tca8418.c
 KEYCODES = [ "NOTHING", "ESCAPE", "SQUARE", "TRIANGLE", "CROSS", "CIRCLE", "CLOUD", "DIAMOND", "BACKSPACE", "0", "-", "`", "1", "2", "3", "4", "5", "6", "7", "8", "9", "TAB", "Q", "W", "E", "R", "T", "Y", "U", "I", "O", "FN", "A", "S", "D", "F", "G", "H", "J", "K", "L", "SHIFT", "Z", "X", "C", "V", "B", "N", "M", ",", ".", "LEFT", "DOWN", "RIGHT", "/", "UP", "SHIFT", ";", "'", "ENTER", "=", "LCTRL", "SOLDERPARTY", "ALT", "\\", "SPACE", "SPACE", "SPACE", "ALT", "P", "[", "NA", "NA", "NA", "NA", "NA", "NA", "NA", "NA", "NA", "]", ]  # fmt: skip
+
+# Keys the firmware's KEYBOARD_BUTTONS has no entry for, so they were dropped.
+# LCTRL is sent as its own key with CTRL as its parent, so apps asking for
+# either name get it (as Keyboard.UP counts as System.UP); the rest as plain
+# keys. The shape keys still set the LED colours with Fn, as before.
+EXTRA_BUTTONS = {
+    "TAB": Button("TAB", "Keyboard"),
+    "LCTRL": Button("LCTRL", "Keyboard", KEYBOARD_BUTTONS.get("CTRL")),
+}
+for _name in ("SQUARE", "TRIANGLE", "CROSS", "CIRCLE", "CLOUD", "DIAMOND", "SOLDERPARTY"):
+    EXTRA_BUTTONS[_name] = Button(_name, "Keyboard")
+
+# Shift and Fn change the keys after them, and are also sent as keys of their
+# own while held, so apps can read them like Ctrl. Not as SHIFT: the firmware's
+# text dialog takes a SHIFT press as a one-shot for the next letter, which the
+# SHIFT sent round each shifted letter below is for, so a held Shift sent as
+# SHIFT would break typing. KEYCODES has a Shift at 41 and at 56.
+SHIFT_BUTTONS = {41: Button("LSHIFT", "Keyboard"), 56: Button("RSHIFT", "Keyboard")}
+FN_BUTTON = Button("FN", "Keyboard")
 
 SHIFTED_KEY_MAP = {
     "1": "!",
@@ -145,13 +164,15 @@ class KeyboardApp(App):
 
         if keycode == "SHIFT":
             self.shifted = pressed
+            self.emit_key(SHIFT_BUTTONS.get(key), pressed)
         elif keycode == "FN":
             self.fned = pressed
+            self.emit_key(FN_BUTTON, pressed)
         else:
             button_keycode = keycode
             if self.shifted:
                 button_keycode = SHIFTED_KEY_MAP.get(button_keycode) or button_keycode
-            button = KEYBOARD_BUTTONS.get(button_keycode)
+            button = KEYBOARD_BUTTONS.get(button_keycode) or EXTRA_BUTTONS.get(button_keycode)
             if button:
                 if pressed:
                     if self.shifted and button_keycode == keycode:
@@ -163,6 +184,10 @@ class KeyboardApp(App):
                         eventbus.emit(ButtonDownEvent(button=button))
                 else:
                     eventbus.emit(ButtonUpEvent(button=button))
+
+    def emit_key(self, button, pressed):
+        if button is not None:
+            eventbus.emit((ButtonDownEvent if pressed else ButtonUpEvent)(button=button))
 
     async def background_task(self):
         while True:
